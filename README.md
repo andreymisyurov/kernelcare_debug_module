@@ -10,4 +10,4 @@ call:
 
 mount | grep debugfs
 
-mount | grep debugfs
+cat /sys/kernel/debug/kernelcare/jiffies
