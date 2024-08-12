@@ -1,0 +1,131 @@
+From a73eb73b26384022e04db68d08dd15885f435d89 Mon Sep 17 00:00:00 2001
+From: amisyurov <amisyurov.c@arlo.com>
+Date: Mon, 12 Aug 2024 16:57:56 +0500
+Subject: [PATCH 2/2] Creating data file  - Adding read and write logic for
+ data file  - Adding mutex for data read/write  - Adding some logs for mutex
+
+---
+ README.md      | 19 +++++++++++++++++--
+ module_debug.c | 50 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 67 insertions(+), 2 deletions(-)
+
+diff --git a/README.md b/README.md
+index 18e233b..8f5055d 100644
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,22 @@ call:
+ </br>It should be:
+ </br>`CONFIG_DEBUG_FS=y`
+ 
++## Checking mounting debugfs
++To verify that debugfs is mounted, run:
++</br>`mount | grep debugfs`
+ 
+-mount | grep debugfs
++If nothing is returned, you can mount it manually using:
++</br>`sudo mount -t debugfs none /sys/kernel/debug`
+ 
+-cat /sys/kernel/debug/kernelcare/jiffies
+\ No newline at end of file
++
++## How to use the module
++please call:
++</br>`sudo ls -la /sys/kernel/debug/kernelcare` - Verify the directory and files creation
++</br>`sudo cat /sys/kernel/debug/kernelcare/jiffies` - Read the jiffies value
++</br>`echo "Hello, KernelCare!" | sudo tee /sys/kernel/debug/kernelcare/data` - Write to the data file
++</br>`sudo cat /sys/kernel/debug/kernelcare/data` - Read the contents of the data file
++
++
++## Usful command
++
++`git format-patch OLD_CAMMIT_HASH..LAST_CAMMIT_HASH -o ../patches` - for creating patch
+\ No newline at end of file
+diff --git a/module_debug.c b/module_debug.c
+index 283b24d..220bcab 100644
+--- a/module_debug.c
++++ b/module_debug.c
+@@ -4,17 +4,27 @@
+ #include <linux/debugfs.h>
+ #include <linux/jiffies.h>
+ #include <linux/uaccess.h>
++#include <linux/mutex.h>
+ 
+ MODULE_LICENSE("GPL");
+ MODULE_AUTHOR("Andrey Misyurov");
+ MODULE_DESCRIPTION("A simple Hello, KernelCare! module");
+ 
+ static ssize_t jiffies_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos);
++static ssize_t data_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos);
++static ssize_t data_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos);
+ 
+ static struct dentry *kernel_care_dir = NULL;
++static struct mutex data_mutex;
+ static const struct file_operations jiffies_fops = {
+     .read = jiffies_read,
+ };
++static const struct file_operations data_fops = {
++    .read = data_read,
++    .write = data_write,
++};
++
++static char global_data[PAGE_SIZE];
+ 
+ static ssize_t jiffies_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
+ {
+@@ -25,6 +35,41 @@ static ssize_t jiffies_read(struct file *file, char __user *user_buf, size_t cou
+     return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+ }
+ 
++static ssize_t data_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos)
++{
++    ssize_t result = 0;
++    mutex_lock(&data_mutex);
++    pr_info("Data mutex locked\n");
++    result = simple_read_from_buffer(user_buf, count, ppos, global_data, strlen(global_data));
++    mutex_unlock(&data_mutex);
++    pr_info("Data mutex unlocked\n");
++    return result;
++}
++
++static ssize_t data_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos)
++{
++
++    if (count > PAGE_SIZE - 1)
++        count = PAGE_SIZE - 1;
++
++    mutex_lock(&data_mutex);
++    pr_info("Data mutex locked\n");
++    if (copy_from_user(global_data, user_buf, count)) {
++        mutex_unlock(&data_mutex);
++        pr_info("Data mutex unlocked\n");
++        return -EFAULT;
++    }
++
++    global_data[count] = '\0';
++
++    pr_info("Written to data: %s\n", global_data);
++
++    mutex_unlock(&data_mutex);
++    pr_info("Data mutex unlocked\n");
++    return (ssize_t)count;
++}
++
++
+ static int __init hello_init(void)
+ {
+     pr_info("Hello, KernelCare!\n");
+@@ -40,6 +85,11 @@ static int __init hello_init(void)
+         return -ENOMEM;
+     }
+     pr_info("Jiffies was created!\n");
++
++    if (!debugfs_create_file("data", 0644, kernel_care_dir, NULL, &data_fops)) {
++        pr_alert("Could not create data file in debugfs\n");
++        return -ENOMEM;
++    }
+     return 0;
+ }
+ 
+-- 
+2.34.1
+

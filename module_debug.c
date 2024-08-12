@@ -8,7 +8,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andrey Misyurov");
-MODULE_DESCRIPTION("A simple Hello, KernelCare! module");
+MODULE_DESCRIPTION("A kernel module for interacting with debugfs, providing jiffies and data interfaces.");
 
 static ssize_t jiffies_read(struct file *file, char __user *user_buf, size_t count, loff_t *ppos);
 static ssize_t data_write(struct file *file, const char __user *user_buf, size_t count, loff_t *ppos);
